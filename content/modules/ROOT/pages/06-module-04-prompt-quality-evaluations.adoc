@@ -101,6 +101,9 @@ Where v1 routes "how to" questions to the runbook agent and "what is" questions 
 +
 This is a plausible real-world mistake -- a developer "cleaned up" the prompt without realizing the specificity was load-bearing.
 
+// TODO: Add screenshot — MLflow Prompt Registry showing supervisor-system-prompt with two versions listed, v1 tagged stage:production and v2 tagged stage:candidate
+image::module-04-prompt-registry-versions.png[MLflow Prompt Registry view showing the supervisor-system-prompt entry with two versions: v1 with tags stage=production and author=agentops-lab, and v2 with tags stage=candidate and author=agentops-lab. Both versions are visible in the version history list,link=self,window=blank,width=800,title="MLflow Prompt Registry -- v1 and v2 registered with stage tags"]
+
 === Verify
 
 Both `supervisor-system-prompt v1` and `supervisor-system-prompt v2` appear in the Prompt Registry.
@@ -301,6 +304,9 @@ A drop of more than 0.15 in similarity or 0.5 in judge scores indicates a meanin
 The comparison view shows all metrics side by side across both runs.
 This is the view a CI/CD pipeline quality gate would use to block a prompt deployment -- if any metric drops below threshold, the deployment is rejected automatically.
 
+// TODO: Add screenshot — MLflow run comparison view showing eval-prompt-v1 and eval-prompt-v2 side by side with all three metrics (answer_similarity, answer_relevance, answer_correctness) and the delta visible as lower values for v2
+image::module-04-mlflow-run-comparison.png[MLflow experiment comparison view showing eval-prompt-v1 and eval-prompt-v2 side by side. A metrics table lists answer_similarity, answer_relevance, and answer_correctness. The v2 column shows visibly lower values for all three metrics, confirming the regression. Bar charts or sparklines highlight the difference between the two runs,link=self,window=blank,width=800,title="MLflow run comparison -- v2 scores lower than v1 across all metrics"]
+
 === 3.4 Tag the failed candidate in the Prompt Registry
 
 . In the MLflow Prompt Registry, click `supervisor-system-prompt`, then click version 2.
@@ -309,6 +315,9 @@ This is the view a CI/CD pipeline quality gate would use to block a prompt deplo
 +
 This marks the candidate as failed without deleting it.
 The version history and all associated evaluation runs remain visible -- a complete audit trail for compliance purposes.
+
+// TODO: Add screenshot — MLflow Prompt Registry showing supervisor-system-prompt version 2 detail view with the stage:rejected tag visible alongside the original stage:candidate tag
+image::module-04-prompt-registry-rejected.png[MLflow Prompt Registry detail view for supervisor-system-prompt version 2. The tags section shows two tags: stage=rejected and stage=candidate. The version 1 entry below or alongside still shows stage=production, illustrating that rejection does not affect the production version or delete the audit trail,link=self,window=blank,width=800,title="Prompt Registry -- v2 tagged rejected while v1 remains in production"]
 
 === Verify
 

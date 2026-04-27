@@ -145,6 +145,9 @@ Verify the graph shows three components with correct dependency arrows: both `ru
 The pipeline graph shows three nodes: two `run_evaluation` components and one `compare_and_gate` component.
 Arrows connect each `run_evaluation` to `compare_and_gate`.
 
+// TODO: Add screenshot — RHOAI AI Pipelines graph view showing three component boxes: run_evaluation (baseline) and run_evaluation (candidate) on the left, both connected by arrows to compare_and_gate on the right
+image::module-05-pipeline-graph.png[RHOAI AI Pipelines graph view for the agentops-prompt-evaluation pipeline. Two boxes labeled run_evaluation are on the left side -- one for the baseline and one for the candidate prompt version. Both connect with arrows to a single compare_and_gate box on the right, illustrating the fan-in dependency pattern,link=self,window=blank,width=800,title="AI Pipeline graph -- two evaluation tasks feeding into the quality gate"]
+
 === 2.3 Submit a one-shot run
 
 . Click *Create run*. Configure the run:
@@ -170,6 +173,9 @@ Click *Create*.
 Watch each component cycle through its states: *Pending -> Running -> Succeeded* (or *Failed*).
 The full run takes approximately 2-3 minutes.
 
+// TODO: Add screenshot — RHOAI AI Pipelines run detail view mid-execution, showing one run_evaluation component with a Running spinner and the compare_and_gate component still in Pending state
+image::module-05-pipeline-run-in-progress.png[RHOAI AI Pipelines run detail view showing the module-5-demo-run in progress. One run_evaluation component shows a blue Running indicator with an animated spinner. The second run_evaluation is also Running. The compare_and_gate component shows a gray Pending indicator, waiting for both evaluation tasks to complete,link=self,window=blank,width=800,title="Pipeline run in progress -- evaluation components running, gate pending"]
+
 === 2.4 Inspect the gate output
 
 . After `compare_and_gate` completes, click on that component in the graph.
@@ -178,6 +184,9 @@ The full run takes approximately 2-3 minutes.
 +
 The output should be `"fail"` -- v2 scored below the 0.10 threshold you observed in Module 4.
 This is the same regression result you calculated manually, now enforced automatically.
+
+// TODO: Add screenshot — RHOAI AI Pipelines run detail showing compare_and_gate component selected, Output artifacts tab open, displaying the string "fail" as the artifact value
+image::module-05-pipeline-gate-fail.png[RHOAI AI Pipelines run detail view with the compare_and_gate component selected in the graph. The right panel shows the Output artifacts tab with a single string artifact displaying the value fail. All three components show green Succeeded indicators, confirming the pipeline completed successfully even though the gate output is fail,link=self,window=blank,width=800,title="compare_and_gate output -- fail (v2 below quality threshold)"]
 
 === Verify
 
@@ -223,6 +232,9 @@ Click *Create*.
 The nightly evaluation is now scheduled.
 Each night at 02:00 UTC, the pipeline will evaluate the current production prompt against itself (v1 as both baseline and candidate) -- a sanity check that the baseline itself has not drifted.
 In production, you would parameterize the run to test any new candidate prompt that is proposed for deployment.
+
+// TODO: Add screenshot — RHOAI AI Pipelines Recurring runs list showing nightly-prompt-evaluation with trigger type Periodic, interval Every 1 day, next scheduled run timestamp, and status Enabled
+image::module-05-pipeline-recurring-run.png[RHOAI AI Pipelines Recurring runs list showing one entry named nightly-prompt-evaluation. Columns show pipeline name agentops-prompt-evaluation, trigger type Periodic, schedule Every 1 day, next run timestamp, and status Enabled with a green indicator,link=self,window=blank,width=800,title="Nightly evaluation scheduled -- recurring run configured for automatic execution"]
 
 NOTE: The recurring run schedule is stored in the RHOAI database and persists across cluster restarts.
 It is scoped to your lab instance -- you are not scheduling against a shared system.

@@ -133,6 +133,9 @@ If the supervisor routed to both retrieval agents, you will see two parallel chi
 If the trace does not appear, wait 10 seconds and refresh.
 MLflow ingests traces asynchronously after the request completes.
 
+// TODO: Add screenshot — MLflow trace waterfall for the module-3-trace run, showing the four-span hierarchy: AgentGraph root with supervisor, retrieval agent(s), and synthesis as child spans, each with a proportional width bar
+image::module-03-mlflow-trace-waterfall.png[MLflow trace waterfall view showing the AgentGraph root span spanning the full width, with indented child spans below: supervisor near the left edge, docs-retrieval or runbook-retrieval as a child of supervisor, and synthesis at the bottom. Each span bar is proportional to its duration in milliseconds,link=self,window=blank,width=800,title="MLflow trace waterfall -- four-agent span hierarchy"]
+
 == Exercise 2: Analyze trace timelines
 
 Now that you have a trace, you will use it to identify the two pre-seeded failure conditions.
@@ -171,6 +174,9 @@ This is the intermittent latency bottleneck -- a ChromaDB query that occasionall
 If your current trace does not show it, run cell 5 two more times.
 The bottleneck appears in roughly 1 in 3 requests due to the `DOCS_AGENT_SLOW_RATE` fault injection parameter.
 
+// TODO: Add screenshot — MLflow span attributes panel for the docs-retrieval span, showing duration_ms above 5000 and the tool.name and llm.token_count attributes visible in the right-side attributes panel
+image::module-03-mlflow-latency-span.png[MLflow trace waterfall with the docs-retrieval span selected. The right-side attributes panel shows duration_ms at approximately 6200 milliseconds, tool.name set to docs-retrieval, and llm.token_count.prompt and completion values. The span bar is visibly the widest in the waterfall,link=self,window=blank,width=800,title="Docs-retrieval span -- latency bottleneck with duration_ms above 5000"]
+
 === 2.2 Find the silent failure
 
 . In the trace waterfall, locate the `runbook-retrieval` span.
@@ -185,6 +191,9 @@ This span completed without an exception -- `duration_ms` is normal (below 500 m
 But it returned zero results to the synthesis agent, which then generated a response with no grounding from the runbook store.
 +
 A monitoring system watching only for exceptions would miss this entirely.
+
+// TODO: Add screenshot — MLflow span attributes panel for the runbook-retrieval span, clearly showing tool.result_count = 0 with a normal (sub-500ms) duration_ms and no error flag
+image::module-03-mlflow-silent-failure-span.png[MLflow trace waterfall with the runbook-retrieval span selected. The right-side attributes panel shows tool.result_count set to 0, duration_ms at approximately 280 milliseconds, and no error status indicator on the span. The span bar appears normal width despite the zero result count,link=self,window=blank,width=800,title="Runbook-retrieval span -- tool.result_count = 0 with no error flag (silent failure)"]
 
 NOTE: If your trace does not show `tool.result_count=0`, run cell 5 one more time.
 The silent failure appears in roughly 1 in 3 requests due to the `RUNBOOK_AGENT_FAULT_RATE` parameter.
@@ -223,6 +232,9 @@ The timestamp, the `query_id`, and the error message should all correspond.
 +
 You have now connected a log event to a distributed trace span -- two pillars, one incident.
 This is the core incident-response workflow for agentic systems.
+
+// TODO: Add screenshot — Grafana Explore showing the LogQL query filtered by query_id, with a single matching log entry whose timestamp aligns with the MLflow trace span timestamp
+image::module-03-logql-trace-correlation.png[Grafana Explore Loki view showing a single log entry returned by the query_id filter. The log line shows the same timestamp, query_id, and ChromaDB zero-results error message that corresponds to the runbook-retrieval silent failure span in the MLflow trace,link=self,window=blank,width=800,title="LogQL output matching the MLflow trace span -- same query_id, same timestamp"]
 
 === 2.4 Attribute token cost to individual agents
 

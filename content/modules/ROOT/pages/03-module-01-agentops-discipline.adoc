@@ -95,6 +95,9 @@ All six pods should show *Running* status with *1/1* ready containers.
 If any pod shows *Pending* or *CrashLoopBackOff*, wait 30 seconds and refresh.
 If the problem persists, let the facilitator know.
 
+// TODO: Add screenshot — OCP Console Pods list for the agentops-demo namespace, all six pods showing Running 1/1
+image::module-01-pods-running.png[OpenShift console showing the agentops-demo namespace Pods list with all six pods -- supervisor, docs-retrieval, runbook-retrieval, synthesis, chromadb, and load-generator -- in Running status with 1/1 ready containers,link=self,window=blank,width=800,title="All six AI Ops Assistant pods running"]
+
 === 1.3 Observe live traffic
 
 . Click on the *load-generator* pod to open its detail page.
@@ -111,6 +114,9 @@ INFO:     Response received in 3.8s
 INFO:     Sending query: "What are the recommended resource limits for RHOAI workloads?"
 INFO:     Response received in 4.1s
 ----
+
+// TODO: Add screenshot — OCP Console Logs tab for the load-generator pod, showing query submission entries streaming in real time
+image::module-01-load-generator-logs.png[OpenShift console Logs tab for the load-generator pod showing a stream of INFO entries with query text and response latency appearing every 10 seconds,link=self,window=blank,width=800,title="Load generator submitting live queries"]
 
 This traffic has been running continuously.
 By the time you read this, the load generator has submitted hundreds of queries.
@@ -195,6 +201,9 @@ Note the round-trip latency -- this becomes your baseline for the failure discov
 The workbench opens in a new tab.
 
 . Locate the file `agentops-lab.ipynb` and click to open it.
+
+// TODO: Add screenshot — RHOAI workbench showing agentops-lab.ipynb open in JupyterLab with the notebook file browser visible on the left and Cell 1 visible in the editor
+image::module-01-workbench-notebook.png[RHOAI JupyterLab workbench showing agentops-lab.ipynb open, with the notebook file browser panel on the left and the first notebook cell visible in the editor pane,link=self,window=blank,width=800,title="RHOAI workbench with agentops-lab.ipynb open"]
 
 === 3.2 Run the environment setup cell
 
