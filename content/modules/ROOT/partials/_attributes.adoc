@@ -1,0 +1,4 @@
+// Workshop-specific attributes
+// Runtime values are injected by the AgnosticV ocp4_workload_showroom_user_data_seed workload.
+// Values below are development fallbacks used when building locally.
+// Do not hardcode real cluster URLs or credentials here.

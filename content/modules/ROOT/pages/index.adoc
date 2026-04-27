@@ -1,94 +1,66 @@
-= What is Showroom?
-:navtitle: What is Showroom?
+= AgentOps in Production: Agentic End-to-End Observability with Red Hat AI
+include::partial$_attributes.adoc[]
 
-Showroom is a web-based lab instruction platform for the https://demo.redhat.com[Red Hat Demo Platform].
-It combines rendered AsciiDoc content with embedded terminals, consoles, and interactive tools -- giving workshop and demo participants everything they need in a single browser tab.
+Welcome to the *AgentOps in Production* workshop!
 
-== What Users See
+Multi-agent AI systems fail in ways that monolithic applications never do.
+A single slow agent can poison the entire pipeline.
+Opaque token costs can blow through your budget before anyone notices.
+Silent retrieval failures return empty results without raising an exception.
+Standard monitoring catches none of it.
 
-When a participant opens their Showroom URL they get a split-pane interface:
+This workshop gives you the observability discipline to find those failures before your users do.
 
-* **Left pane** -- step-by-step lab instructions rendered from an https://antora.org[Antora] site you author in AsciiDoc.
-* **Right pane** -- one or more tabs such as:
-** A web terminal (SSH to a bastion, containerised CLI tools, or both).
-** The OpenShift web console embedded in an iframe.
-** A VS Code editor (Code Server).
-** A VNC desktop (noVNC).
-** Any external URL you choose.
+== What you will learn
 
-The UI layout, tab names, and tab URLs are all controlled by a simple `ui-config.yml` file that lives in your content repository.
+In this workshop, you will:
 
-== How It Gets Deployed
+* Identify the components of a multi-agent AI architecture and explain why distributed observability matters for production reliability
+* Navigate Grafana dashboards to analyze AI-specific metrics -- token usage, inference latency, and tool call success rates
+* Write LogQL queries in LokiStack to filter and correlate logs across a running multi-agent application
+* Instrument a LangGraph application with MLflow autolog for zero-code-change distributed tracing
+* Analyze trace timelines to identify latency bottlenecks and silent tool failures in multi-agent workflows
+* Run prompt evaluations, compare versions, and detect regressions before they reach production
+* Package evaluations into a schedulable AI Pipeline on OpenShift AI
 
-This Ansible collection -- `agnosticd.showroom` -- is the primary way Showroom instances are deployed on the Red Hat Demo Platform.
-Depending on the environment type, you use one of two roles:
+== Who this is for
 
-[cols="1,3",options="header"]
-|===
-|Role |Use when...
+This workshop is designed for *platform engineers, AI platform administrators, and MLOps leaders* who are responsible for keeping AI workloads reliable in production.
 
-|`ocp4_workload_showroom`
-|Your lab runs on an OpenShift 4 cluster.
-The role deploys Showroom as a pod using a Helm chart, complete with content rendering, terminals, and an OpenShift `Route`.
+*Experience level*: Intermediate -- you should be comfortable with the OpenShift console and Python at a reading level.
+No prior MLflow, LangGraph, or Grafana experience is required.
 
-|`vm_workload_showroom`
-|Your lab runs on a VM (RHEL, Fedora, etc.).
-The role deploys Showroom with rootless Podman, Traefik for TLS, and systemd for lifecycle management.
-|===
+== Prerequisites
 
-Both roles follow the same basic flow:
+Before starting, you should have:
 
-. Clone your Antora content repository.
-. Inject runtime variables (credentials, hostnames, GUIDs) as AsciiDoc attributes.
-. Render the content to HTML.
-. Serve the content alongside the terminal and tab services you configured.
-. Publish the final URL back to the user.
+* Basic OpenShift or Kubernetes familiarity -- you can navigate to a namespace and view pod logs
+* Python at a reading level -- you can understand imports, function calls, and dictionaries
+* General awareness of LLMs -- you know what a prompt is, what tokens are, what inference means
 
-== Key Concepts
+== Workshop environment
 
-Content repository::
-A Git repo containing your AsciiDoc lab instructions, structured as an Antora component.
-You typically fork https://github.com/rhpds/showroom_template_nookbag[showroom_template_nookbag] and add your own pages.
-See xref:content-repo.adoc[].
+Everything is already deployed and running when you arrive.
+You will not install or configure anything -- your job is to observe and analyze a live system.
 
-AgnosticV catalog item::
-The YAML configuration in the https://github.com/rhpds/agnosticv[agnosticv] repository that ties your content repo to an environment on the Red Hat Demo Platform.
-See xref:agnosticv-config.adoc[].
+Your environment includes:
 
-User data::
-A set of key-value pairs (hostnames, passwords, URLs) written by infrastructure roles during provisioning and automatically injected into your content as Antora attributes.
-See xref:user-data.adoc[].
+* *AI Ops Assistant* -- a four-agent LangGraph application handling live traffic
+* *Grafana* -- pre-built AI observability dashboard connected to Prometheus and Loki
+* *LokiStack* -- collecting logs from all workloads in the `{project_namespace}` namespace
+* *MLflow* -- distributed tracing and Prompt Registry, tracking URI pre-configured
+* *RHOAI workbench* -- a pre-launched Jupyter notebook ready to use
 
-UI configuration::
-A `ui-config.yml` file in your content repo that defines the tabs, layout width, and dynamic URLs shown alongside your lab instructions.
-See xref:ui-config.adoc[].
+OpenShift console: link:{openshift_console_url}[{openshift_console_url}^]
 
-== Where to Start
+NOTE: All credentials and environment details are available in the lab interface.
 
-[cols="1,3",options="header"]
-|===
-|Goal |Page
+== Estimated time
 
-|Get a Showroom lab running quickly
-|xref:quick-start.adoc[]
+This workshop takes approximately *90 minutes* to complete.
 
-|Create or structure a content repo
-|xref:content-repo.adoc[]
+You can work at your own pace.
 
-|Wire up an AgnosticV catalog item
-|xref:agnosticv-config.adoc[]
+== Let us get started!
 
-|Understand the full architecture
-|xref:architecture.adoc[]
-
-|Contribute to Showroom itself
-|xref:contributing.adoc[]
-|===
-
-== Related Projects
-
-* https://github.com/agnosticd/showroom[agnosticd.showroom collection] -- this Ansible collection (you are here).
-* https://github.com/rhpds/showroom_template_nookbag[showroom_template_nookbag] -- the recommended content repo template.
-* https://github.com/rhpds/showroom-deployer[showroom-deployer] -- Helm charts that power OCP deployments.
-* https://github.com/rhpds/showroom-images[showroom-images] -- container images (content server, terminals, Antora, etc.).
-* https://github.com/rhpds/nookbag[nookbag] -- the zero-touch UI bundle.
+Click on *Workshop overview* in the navigation to read the background and get oriented.

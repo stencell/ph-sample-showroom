@@ -1,0 +1,109 @@
+= Workshop details
+:toc:
+:toc-placement: preamble
+:icons: font
+include::partial$_attributes.adoc[]
+
+== Timing
+
+[cols="1,3,1",options="header"]
+|===
+| Module | Title | Duration
+
+| 1
+| The AgentOps discipline
+| 10 min
+
+| 2
+| Platform layer: Metrics and logs
+| 20 min
+
+| 3
+| Developer layer: MLflow tracing
+| 20 min
+
+| 4
+| Prompt quality: Registry and evaluations
+| 25 min
+
+| 5
+| Operationalizing with AI Pipelines
+| 15 min
+|===
+
+*Total: 90 minutes*
+
+== Your environment
+
+Everything you need is already deployed and running.
+You will not install anything.
+
+[cols="1,3",options="header"]
+|===
+| Component | What it does
+
+| *OpenShift cluster*
+| Base platform, provided via Field Source
+
+| *Red Hat OpenShift AI (RHOAI)*
+| Workbench notebook, AI Pipelines (Kubeflow Pipelines v2), model serving integration
+
+| *AI Ops Assistant*
+| The four-agent LangGraph application you will observe -- live traffic already flowing
+
+| *Load generator*
+| Submits synthetic queries every ~10 seconds -- dashboards are pre-populated when you arrive
+
+| *MLflow*
+| Distributed tracing and Prompt Registry -- tracking URI pre-configured as an environment variable in the workbench
+
+| *LokiStack*
+| Log aggregation for the `{project_namespace}` namespace
+
+| *Grafana*
+| Pre-built AI observability dashboard connected to Prometheus and Loki
+
+| *ChromaDB*
+| In-cluster vector store with two collections: RHOAI/OCP docs and SRE runbooks
+
+| *MaaS (Model as a Service)*
+| Shared external inference endpoint, OpenAI-compatible API -- no GPU required, no local model deployment
+
+| *AI Pipelines*
+| Kubeflow Pipelines v2 enabled on the RHOAI instance
+|===
+
+You access everything through the RHOAI workbench and the OpenShift and Grafana web consoles.
+No local tooling installation is required.
+
+== Software versions
+
+* Red Hat OpenShift {ocp_version}
+* Red Hat OpenShift AI {rhoai_version}
+* MLflow (in-cluster, managed by RHOAI)
+* LangGraph and LangChain (Python, pre-installed in the workbench image)
+* Kubeflow Pipelines v2
+
+== Access
+
+[cols="1,3",options="header"]
+|===
+| Resource | URL
+
+| OpenShift Console
+| link:{openshift_console_url}[{openshift_console_url}^]
+
+| OpenShift AI
+| link:{rhods_dashboard_url}[{rhods_dashboard_url}^]
+
+| Grafana
+| link:{grafana_url}[{grafana_url}^]
+|===
+
+NOTE: Credentials are provided in the lab interface. Look for your username and password in the left panel.
+
+== Authors
+
+*Author*: Nate Stephany +
+*Workshop version*: 1.0 +
+*For feedback or issues*: link:https://github.com/stencell/ph-sample-showroom/issues[Submit an issue^]

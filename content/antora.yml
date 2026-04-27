@@ -1,5 +1,5 @@
 name: modules
-title: Showroom Collection
+title: "AgentOps in Production: Agentic End-to-End Observability with Red Hat AI"
 version: ~
 nav:
   - modules/ROOT/nav.adoc
@@ -9,10 +9,10 @@ asciidoc:
     experimental: true
     page-pagination: true
     showroom-collection-version: v1.5.6
-    guid: abc123
-    bastion_public_hostname: bastion.abc123.ocpv00.rhdp.net
-    bastion_ssh_user_name: lab-user
-    bastion_ssh_password: password
-    ssh_user: lab-user
-    openshift_console_url: https://console-openshift-console.apps.cluster-abc123.ocpv00.rhdp.net
-    openshift_cluster_ingress_domain: apps.cluster-abc123.ocpv00.rhdp.net
+    project_namespace: agentops-demo
+    ocp_version: "4.16"
+    rhoai_version: "2.16"
+    openshift_console_url: https://console-openshift-console.apps.cluster.example.com
+    rhods_dashboard_url: https://rhods-dashboard-redhat-ods-applications.apps.cluster.example.com
+    grafana_url: https://grafana-route-agentops-demo.apps.cluster.example.com
+    mlflow_tracking_uri: http://mlflow-agentops-demo.apps.cluster.example.com
