@@ -1,0 +1,347 @@
+= Module 4: Prompt quality -- registry and evaluations
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 2
+include::partial$_attributes.adoc[]
+
+toc::[]
+
+Traces tell you where latency hides.
+Evaluations tell you whether the output is actually correct.
+
+This module introduces MLflow Prompt Registry for versioning system prompts, then walks you through designing and running LLM evaluations with two scorer types: deterministic (semantic similarity) and LLM-as-a-Judge (quality scoring via MaaS).
+The payoff is prompt regression detection -- you will register two versions of the supervisor agent's system prompt, evaluate both, and observe a measurable quality drop in the second version.
+This is the quality gate that prevents regressions from reaching production.
+
+*Estimated time*: 25 minutes
+
+== Learning objectives
+
+By the end of this module, you will be able to:
+
+* Register versioned system prompts in the MLflow Prompt Registry and compare versions in the UI
+* Build a minimal evaluation dataset with question-answer pairs representing realistic workload queries
+* Run `mlflow.evaluate()` with a deterministic scorer and an LLM-as-a-Judge scorer
+* Interpret evaluation metrics and identify a prompt regression from a comparison table
+* Use MLflow tags to mark a failed prompt candidate without deleting the audit trail
+
+== Exercise 1: MLflow Prompt Registry
+
+System prompts are code.
+They determine routing behavior, response quality, and cost per request.
+Without version control, a changed prompt leaves no audit trail, no comparison point, and no rollback path.
+MLflow Prompt Registry gives prompts the same guarantees that git gives for code.
+
+=== 1.1 Confirm the Prompt Registry is available
+
+. In the MLflow UI, locate *Prompt Registry* in the left sidebar.
++
+If this is your first visit, the registry is empty.
+That is expected -- you will populate it now.
+
+=== 1.2 Register prompt version 1
+
+. Return to `agentops-lab.ipynb` in the RHOAI workbench.
+
+. Scroll to *Cell 6: Register v1 prompt*. Run the cell:
++
+[source,python]
+----
+prompt_v1 = mlflow.register_prompt(
+    name="supervisor-system-prompt",
+    template=supervisor_prompt_v1,   # pre-defined earlier in the notebook
+    commit_message="Initial version -- routes to docs or runbook agent based on query type",
+    tags={"stage": "production", "author": "agentops-lab"}
+)
+print(f"Registered: {prompt_v1.name} v{prompt_v1.version}")
+----
++
+Expected output:
++
+----
+Registered: supervisor-system-prompt v1
+----
+
+. Return to the MLflow UI -> *Prompt Registry*. Refresh the page.
++
+Confirm `supervisor-system-prompt` appears with version 1.
+Click the prompt name to view the full template text.
++
+The v1 prompt contains explicit routing rules: queries about documentation go to the docs agent, queries about procedures go to the runbook agent.
+
+=== 1.3 Register prompt version 2 (the candidate)
+
+. Run *Cell 7: Register v2 prompt*:
++
+[source,python]
+----
+prompt_v2 = mlflow.register_prompt(
+    name="supervisor-system-prompt",
+    template=supervisor_prompt_v2,   # pre-defined earlier in the notebook
+    commit_message="v2 -- simplified routing instructions",
+    tags={"stage": "candidate", "author": "agentops-lab"}
+)
+print(f"Registered: {prompt_v2.name} v{prompt_v2.version}")
+----
++
+Expected output:
++
+----
+Registered: supervisor-system-prompt v2
+----
+
+=== 1.4 Compare v1 and v2 in the UI
+
+. In the MLflow Prompt Registry, click `supervisor-system-prompt`.
+
+. Click between version 1 and version 2 to compare the template text.
++
+Note what changed: the v2 prompt simplifies the routing conditions in a way that loses specificity.
+Where v1 routes "how to" questions to the runbook agent and "what is" questions to the docs agent, v2 uses vaguer language that causes more misroutes.
++
+This is a plausible real-world mistake -- a developer "cleaned up" the prompt without realizing the specificity was load-bearing.
+
+=== Verify
+
+Both `supervisor-system-prompt v1` and `supervisor-system-prompt v2` appear in the Prompt Registry.
+
+== Exercise 2: Design and run evaluations
+
+You will now build a 5-question evaluation dataset and run it through the assistant using each prompt version.
+Two scorer types measure quality: a deterministic scorer (fast, cheap, no MaaS call) and an LLM-as-a-Judge scorer (flexible, one MaaS call per row per scorer).
+
+=== 2.1 Review the evaluation dataset
+
+. Scroll to *Cell 8: Evaluation dataset*. Read through the pre-built dataset -- do not run it yet:
++
+[source,python]
+----
+import pandas as pd
+
+eval_data = pd.DataFrame({
+    "inputs": [
+        "How do I configure node affinity in OpenShift AI?",
+        "What should I do when a pod is stuck in Pending state?",
+        "How do I set resource limits for a Data Science Project?",
+        "What is the procedure for rotating MaaS API credentials?",
+        "How do I enable GPU time-slicing on a worker node?"
+    ],
+    "ground_truth": [
+        "Configure node affinity using the nodeAffinity field in the Notebook spec...",
+        "A pod stuck in Pending state typically indicates insufficient resources...",
+        "Set resource limits in the Data Science Project settings under Resource configuration...",
+        "Rotate MaaS credentials by generating a new API key in the MaaS admin console...",
+        "Enable GPU time-slicing by configuring the NVIDIA device plugin with the time-slicing ConfigMap..."
+    ]
+})
+----
+
+. Before running the cell, add one additional Q&A pair of your own -- any platform engineering question relevant to your environment.
++
+Edit the cell to append a row to `eval_data`:
++
+[source,python]
+----
+new_row = pd.DataFrame({
+    "inputs": ["<your question here>"],
+    "ground_truth": ["<expected answer here>"]
+})
+eval_data = pd.concat([eval_data, new_row], ignore_index=True)
+print(f"Evaluation dataset: {len(eval_data)} rows")
+----
++
+Run the combined cell.
+
+NOTE: Keep datasets small in time-boxed labs.
+Each LLM-as-a-Judge scorer calls MaaS once per row.
+With 6 rows and 2 judge scorers, that is 12 additional MaaS calls on top of the 12 evaluation queries -- 24 total.
+
+=== 2.2 Define the deterministic scorer
+
+. Run *Cell 9: Deterministic scorer*:
++
+[source,python]
+----
+from mlflow.metrics import answer_similarity
+
+deterministic_scorer = answer_similarity()
+----
++
+This scorer uses cosine similarity against the ground truth to produce a score from 0 to 1.
+No MaaS call is required -- it is fast and inexpensive enough to run on every PR in a CI pipeline.
+
+=== 2.3 Define the LLM-as-a-Judge scorers
+
+. Run *Cell 10: LLM-as-a-Judge scorers*:
++
+[source,python]
+----
+from mlflow.metrics.genai import answer_relevance, answer_correctness
+
+judge_scorers = [answer_relevance(), answer_correctness()]
+----
++
+These scorers send each evaluation response to MaaS and ask the model to rate it on a 1-5 scale for relevance and correctness.
+They catch quality regressions that string matching misses -- a response can be highly similar to the ground truth while being factually wrong or off-topic.
+
+=== 2.4 Evaluate prompt v1
+
+. Run *Cell 11: Evaluate v1*:
++
+[source,python]
+----
+with mlflow.start_run(run_name="eval-prompt-v1") as run:
+    mlflow.log_param("prompt_version", "v1")
+    results_v1 = mlflow.evaluate(
+        model=lambda x: assistant.query(x["inputs"], prompt_version=1),
+        data=eval_data,
+        targets="ground_truth",
+        extra_metrics=[deterministic_scorer] + judge_scorers,
+        evaluator_config={"col_mapping": {"inputs": "inputs"}}
+    )
+print(results_v1.metrics)
+----
++
+Wait for the evaluation to complete -- approximately 60 seconds for 6 rows with LLM-as-a-Judge.
+
+. While the evaluation runs, note the production-readiness thresholds:
+
+[cols="1,1,2",options="header"]
+|===
+| Metric | Passing threshold | What it measures
+
+| `answer_similarity/v1/mean`
+| > 0.80
+| Semantic closeness to ground truth (0-1)
+
+| `answer_relevance/v1/mean`
+| > 3.5
+| Relevance to the input question (1-5)
+
+| `answer_correctness/v1/mean`
+| > 3.5
+| Factual correctness of the response (1-5)
+|===
+
+=== Verify
+
+The v1 evaluation run `eval-prompt-v1` should appear in *MLflow -> Experiments -> agentops-lab* after the cell completes.
+
+== Exercise 3: Detect prompt regression
+
+Now you will evaluate the degraded v2 prompt and compare the results.
+
+=== 3.1 Evaluate prompt v2
+
+. Run *Cell 12: Evaluate v2*:
++
+[source,python]
+----
+with mlflow.start_run(run_name="eval-prompt-v2") as run:
+    mlflow.log_param("prompt_version", "v2")
+    results_v2 = mlflow.evaluate(
+        model=lambda x: assistant.query(x["inputs"], prompt_version=2),
+        data=eval_data,
+        targets="ground_truth",
+        extra_metrics=[deterministic_scorer] + judge_scorers,
+        evaluator_config={"col_mapping": {"inputs": "inputs"}}
+    )
+print(results_v2.metrics)
+----
++
+Wait for completion -- another ~60 seconds.
+
+=== 3.2 Print the comparison table
+
+. Run *Cell 13: Comparison table*:
++
+[source,python]
+----
+comparison = pd.DataFrame({
+    "Metric": [
+        "answer_similarity",
+        "answer_relevance",
+        "answer_correctness"
+    ],
+    "v1": [
+        results_v1.metrics["answer_similarity/v1/mean"],
+        results_v1.metrics["answer_relevance/v1/mean"],
+        results_v1.metrics["answer_correctness/v1/mean"]
+    ],
+    "v2": [
+        results_v2.metrics["answer_similarity/v1/mean"],
+        results_v2.metrics["answer_relevance/v1/mean"],
+        results_v2.metrics["answer_correctness/v1/mean"]
+    ]
+})
+comparison["delta"] = comparison["v2"] - comparison["v1"]
+print(comparison.to_string(index=False))
+----
++
+Expected output (values will vary):
++
+----
+            Metric    v1    v2  delta
+    answer_similarity  0.84  0.67  -0.17
+     answer_relevance  3.90  3.20  -0.70
+   answer_correctness  3.80  3.10  -0.70
+----
++
+The `delta` column is the regression signal.
+A drop of more than 0.15 in similarity or 0.5 in judge scores indicates a meaningful quality regression.
+
+=== 3.3 Compare runs in the MLflow UI
+
+. In the MLflow UI, navigate to *Experiments -> agentops-lab*.
+
+. Select both `eval-prompt-v1` and `eval-prompt-v2` using the row checkboxes.
+
+. Click *Compare* at the top of the table.
++
+The comparison view shows all metrics side by side across both runs.
+This is the view a CI/CD pipeline quality gate would use to block a prompt deployment -- if any metric drops below threshold, the deployment is rejected automatically.
+
+=== 3.4 Tag the failed candidate in the Prompt Registry
+
+. In the MLflow Prompt Registry, click `supervisor-system-prompt`, then click version 2.
+
+. Add a tag: `stage: rejected`.
++
+This marks the candidate as failed without deleting it.
+The version history and all associated evaluation runs remain visible -- a complete audit trail for compliance purposes.
+
+=== Verify
+
+* Both evaluation runs appear in MLflow Experiments
+* The comparison table shows a meaningful negative delta on at least two metrics for v2
+* `supervisor-system-prompt v2` has a `stage: rejected` tag in the Prompt Registry
+
+== Module summary
+
+You have built the prompt quality gate that prevents regressions from reaching production.
+
+*What you accomplished:*
+
+* Registered the supervisor agent's system prompt as v1 and v2 in MLflow Prompt Registry
+* Built a 6-question evaluation dataset with ground truth answers
+* Ran `mlflow.evaluate()` with a deterministic similarity scorer and two LLM-as-a-Judge scorers
+* Compared evaluation results and identified a measurable regression in v2
+* Tagged the failed candidate in the Prompt Registry while preserving the full audit trail
+
+*Key takeaways:*
+
+* System prompt versioning via MLflow Prompt Registry gives you the same guarantees for prompts that git gives for code -- every change is tracked, linked to evaluation results, and reversible
+* Deterministic scorers are fast and cheap, making them suitable for every CI run; LLM-as-a-Judge is slower and more expensive but catches quality regressions that string matching misses
+* The evaluation workflow -- register prompt, evaluate, compare, gate -- is the production pattern for prompt management
+* Rejecting a prompt is not deleting it: the `stage: rejected` tag preserves the audit trail for compliance while preventing promotion to production
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* How MLflow Prompt Registry versions system prompts and links them to evaluation results
+* When to use deterministic scorers vs. LLM-as-a-Judge, and the cost tradeoffs of each
+* How to interpret evaluation metric deltas and define a threshold as a quality gate
+* Why preserving rejected candidates in the registry matters for compliance and debugging
+
+*Next*: Module 5 will package this evaluation workflow into a reproducible, schedulable AI Pipeline on OpenShift AI -- making the quality gate run automatically, not manually.

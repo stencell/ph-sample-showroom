@@ -2,3 +2,7 @@
 * xref:01-overview.adoc[Workshop overview]
 * xref:02-details.adoc[Workshop details]
 * xref:03-module-01-agentops-discipline.adoc[Module 1: The AgentOps discipline]
+* xref:04-module-02-platform-metrics-logs.adoc[Module 2: Platform layer -- metrics and logs]
+* xref:05-module-03-mlflow-tracing.adoc[Module 3: Developer layer -- MLflow tracing]
+* xref:06-module-04-prompt-quality-evaluations.adoc[Module 4: Prompt quality -- registry and evaluations]
+* xref:07-module-05-ai-pipelines.adoc[Module 5: Operationalizing with AI Pipelines]

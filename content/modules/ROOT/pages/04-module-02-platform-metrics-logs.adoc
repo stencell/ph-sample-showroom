@@ -1,0 +1,230 @@
+= Module 2: Platform layer -- metrics and logs
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 2
+include::partial$_attributes.adoc[]
+
+toc::[]
+
+Metrics show that something is wrong.
+Logs show what happened.
+Together they give you the platform engineer's view of a running AI system -- measurable from the outside, without touching application code.
+
+In this module you will navigate a pre-built Grafana dashboard wired to Prometheus metrics from the AI Ops Assistant, answer guided questions about agent performance and cost, then pivot to LokiStack to write LogQL queries that isolate errors and correlate them across containers.
+By the end, you will have spotted the first of the two pre-seeded failure conditions hiding in the application.
+
+*Estimated time*: 20 minutes
+
+== Learning objectives
+
+By the end of this module, you will be able to:
+
+* Navigate a Grafana AI observability dashboard and interpret AI-specific panels -- token usage, latency percentiles, tool call success rate, per-agent error rate
+* Explain what TTFT (time to first token) measures and why a wide P50-to-P95 gap indicates intermittent slowness
+* Write LogQL queries using label matchers, content filters, and JSON parsing to isolate logs from specific containers
+* Identify a silent failure in a multi-agent system using the combination of metrics and logs
+
+== Exercise 1: Grafana -- AI metrics dashboard
+
+The AI Ops Assistant exposes Prometheus metrics that the pre-built Grafana dashboard visualizes as AI-specific signals.
+Your goal in this exercise is to answer three questions from the dashboard: what does the system cost, where is latency hiding, and which agent is misbehaving?
+
+=== 1.1 Open the AI Ops Assistant dashboard
+
+. Open Grafana at link:{grafana_url}[{grafana_url}^].
+
+. Log in with the credentials provided in the lab interface.
+
+. In the left sidebar, click the *Dashboards* icon (four squares), then select *Browse*.
+
+. Click *AI Ops Assistant Overview* to open the dashboard.
++
+The dashboard opens showing live data from the past 30 minutes.
+Traffic from the load generator populates all panels -- you should not see any empty panels.
+
+=== Verify
+
+The *Requests per minute* panel shows a value near 6 req/min.
+
+If the panel shows 0, the load generator pod may have stopped.
+Navigate to the OpenShift console, open the `{project_namespace}` namespace, and confirm the `load-generator` pod is Running.
+
+=== 1.2 Read the cost signal: token usage by agent
+
+. Locate the *Token usage by agent* panel -- a stacked bar chart showing tokens in and out per agent per request.
+
+. Identify which agent consumes the most tokens per request on average.
++
+The synthesis agent typically leads because it calls MaaS with the combined outputs of two retrieval agents before generating a final response.
+
+. *Record your answer*: which agent is your highest-token consumer? This is your per-agent cost baseline -- you will return to this when automation builds the cost attribution dashboard.
+
+=== 1.3 Read the latency signal: TTFT percentiles
+
+. Locate the *Time to first token (TTFT) -- P50 and P95* panel -- a time-series line chart with two lines.
+
+. Compare the P50 (median) and P95 (95th percentile) latency lines.
++
+A healthy system has P50 and P95 lines that track closely together -- they diverge when a small number of requests are significantly slower than the median.
+
+. *Question to consider*: which percentile shows spikes above 8 seconds?
+What does that tell you about the frequency of the slowness?
++
+Write down your observation -- you will find the cause of those spikes in Module 3.
+
+=== 1.4 Read the quality signal: tool call success rate
+
+. Locate the *Tool call success rate* panel.
++
+This panel shows the percentage of retrieval tool calls that returned a non-empty result, broken out by agent.
+A healthy retrieval agent should be at or near 100%.
+
+. Observe whether the runbook retrieval agent's success rate is below 100%.
++
+*Question to consider*: if the runbook agent has an 85% success rate at 6 requests per minute over an 8-hour shift, approximately how many retrieval failures occur?
+
+TIP: 6 req/min × 60 min × 8 hours × 15% failure rate = approximately 432 failed retrievals per shift.
+Each one returns an empty result to the user without raising an error.
+
+=== 1.5 Identify the misbehaving agent
+
+. Locate the *Per-agent error rate* panel.
+
+. Note which agent has the highest error rate.
++
+This is the first observable signal of the pre-seeded silent failure -- the runbook retrieval agent is logging errors that surface here as a metric, even though the application does not surface them to the user.
+
+=== 1.6 Inspect the PromQL query behind a panel
+
+. Click on the *TTFT -- P50 and P95* panel title, then select *Edit* (or *Inspect -> Query* depending on your Grafana version).
+
+. Review the PromQL query powering the panel.
++
+Note the `agent` label in the metric selector -- this is how multi-agent metrics stay separable in a shared Prometheus instance.
+Without label-based separation, all four agents' latency would collapse into a single unreadable average.
+
+. Close the panel editor and return to the dashboard.
+
+=== Verify
+
+You should now be able to answer:
+
+* Which agent is the highest token consumer?
+* Where is latency hiding -- P50 or P95?
+* Which agent has a sub-100% tool call success rate?
+* Which agent has the highest error rate?
+
+If any of these panels show unexpected values (all zeros, missing agent labels), confirm the load generator is running and the Grafana data source is pointing to the correct Prometheus and Loki instances.
+
+== Exercise 2: LokiStack -- LogQL queries
+
+Metrics showed you *that* the runbook agent is misbehaving.
+Logs will show you *what* is happening inside the container.
+In this exercise you will write four LogQL queries of increasing complexity, ending with structured JSON parsing that extracts the exact error message and query ID you will need in Module 3.
+
+=== 2.1 Open Grafana Explore with the Loki data source
+
+. In the Grafana left sidebar, click the *Explore* icon (compass).
+
+. In the data source dropdown at the top of the page, select *Loki*.
+
+. In the query editor, click *Code* to switch to manual query mode.
+
+=== 2.2 Query 1 -- all logs from the lab namespace
+
+Enter and run this query:
+
+[source,logql]
+----
+{namespace="agentops-demo"}
+----
+
+Observe the volume of log lines.
+All containers in the namespace stream here -- the load generator, all four agents, ChromaDB, and the FastAPI service.
+This is useful for a broad view but too noisy for incident investigation.
+
+=== 2.3 Query 2 -- narrow to a single container
+
+Replace the previous query with:
+
+[source,logql]
+----
+{namespace="agentops-demo", container="runbook-retrieval"}
+----
+
+The output now shows only logs from the runbook retrieval agent.
+Scroll through the entries and look for any anomalies -- unusual messages, long gaps, repeated patterns.
+
+=== 2.4 Query 3 -- filter for errors across the application
+
+Replace with:
+
+[source,logql]
+----
+{namespace="agentops-demo"} |= "ERROR"
+----
+
+You should see ERROR-level log lines appearing periodically from the `runbook-retrieval` container.
+The timestamp cadence roughly matches the 15% failure rate you observed in the tool call success rate panel.
+
+These are the silent failure events surfacing in structured logs -- they occur, get logged, and are never shown to the user.
+
+=== 2.5 Query 4 -- parse JSON and format the output
+
+Replace with:
+
+[source,logql]
+----
+{namespace="agentops-demo", container="runbook-retrieval"}
+| json
+| level="ERROR"
+| line_format "{{.timestamp}} | {{.query_id}} | {{.message}}"
+----
+
+The output now shows one formatted line per error event:
+
+----
+2026-04-27T14:23:11Z | qid-a7f3d91c | ChromaDB returned 0 results for query
+2026-04-27T14:23:44Z | qid-b82e0471 | ChromaDB returned 0 results for query
+----
+
+*Copy one `query_id` value from the output.* Write it down or paste it into a notebook cell.
+You will use this in Module 3 to find the matching distributed trace.
+
+=== Verify
+
+Your final LogQL query should produce at least one structured log line with a `query_id` field.
+
+If the output is empty:
+
+* Confirm the `level` field exists by running the query without the `level="ERROR"` filter and inspecting the JSON fields
+* Confirm the load generator is running -- errors only appear in log output when requests are actively failing
+
+== Module summary
+
+You have used both pillars of the platform observability layer to identify and understand the first pre-seeded failure.
+
+*What you accomplished:*
+
+* Navigated the AI Ops Assistant Grafana dashboard and identified the runbook retrieval agent as the source of quality and error signals
+* Observed a wide P50-to-P95 TTFT gap indicating intermittent slowness on a second failure condition you will investigate in Module 3
+* Wrote four LogQL queries using label matchers, content filters, and JSON parsing
+* Extracted a structured error message and `query_id` from the runbook agent's logs
+
+*Key takeaways:*
+
+* Grafana metrics give you the platform view -- is the system healthy, what does it cost, where is latency hiding? But metrics alone cannot tell you why. They point you to the right container, not the root cause
+* LogQL label matchers keep multi-agent log streams separable; JSON parsing extracts structured fields for filtering
+* You have now identified the silent failure in the runbook agent using metrics (low tool call success rate) and confirmed it in logs (ERROR messages with query IDs)
+* In Module 3, you will find the same failure in a distributed trace and add the third pillar to the picture
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* How a Grafana dashboard translates raw Prometheus metrics into AI-specific health signals
+* Why TTFT percentile separation matters as an indicator of intermittent vs. chronic slowness
+* How to use LokiStack label matchers and JSON parsing to narrow from namespace-wide noise to a specific failure event
+* How metrics and logs complement each other in a multi-agent incident investigation
+
+*Next*: Module 3 will take you into MLflow to enable distributed tracing, find the latency bottleneck, and connect your `query_id` to the exact trace span where the silent failure occurred.

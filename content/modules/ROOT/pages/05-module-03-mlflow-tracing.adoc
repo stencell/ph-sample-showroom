@@ -1,0 +1,286 @@
+= Module 3: Developer layer -- MLflow tracing
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 2
+include::partial$_attributes.adoc[]
+
+toc::[]
+
+Metrics show that something is wrong.
+Logs show what happened in a container.
+Traces show where time went across the entire request.
+
+This module introduces MLflow's distributed tracing for LangGraph applications.
+You will enable autolog with a single line of code, re-run a query, then navigate the MLflow UI to analyze trace timelines.
+You will find the latency bottleneck and the silent tool failure -- both pre-seeded in the application -- using span-level data that metrics and logs alone could not pinpoint.
+You will then connect the trace to the `query_id` you copied in Module 2, linking two observability pillars against a single incident.
+
+*Estimated time*: 20 minutes
+
+NOTE: You will need the `query_id` value you copied from LogQL output in Module 2, step 2.5.
+If you did not copy it, re-run the Module 2 query 4 before continuing.
+
+== Learning objectives
+
+By the end of this module, you will be able to:
+
+* Enable MLflow autolog for LangChain and LangGraph applications with a single line of code
+* Navigate the MLflow trace waterfall view and interpret span-level attributes
+* Distinguish between a hard failure (exception in a span) and a silent failure (span completes with zero results)
+* Use `query_id` to cross-reference a log event with a distributed trace span
+* Attribute per-request token cost to individual agents using span attributes
+
+== Exercise 1: Enable MLflow autolog
+
+MLflow autolog for LangChain captures the full span tree for every LangGraph request -- parent and child spans, token counts, model names, tool results -- without any changes to the agent code.
+One line activates it.
+
+=== 1.1 Confirm MLflow connectivity
+
+. Return to your RHOAI workbench notebook at link:{rhods_dashboard_url}[{rhods_dashboard_url}^] and open `agentops-lab.ipynb`.
+
+. Scroll to *Cell 3: MLflow setup*. Run the cell:
++
+[source,python]
+----
+import mlflow
+
+print(mlflow.get_tracking_uri())
+mlflow.set_experiment("agentops-lab")
+----
++
+Expected output:
++
+----
+http://mlflow-agentops-demo.apps.cluster.example.com
+----
+
+=== Verify
+
+The output prints an HTTP URL -- not `None` or an empty string.
+
+If you see `None`, the `MLFLOW_TRACKING_URI` environment variable was not injected into the workbench pod.
+Restart the workbench kernel and re-run cells 1 through 3.
+
+=== 1.2 Enable autolog
+
+. Scroll to *Cell 4: Enable autolog*. Run the cell:
++
+[source,python]
+----
+mlflow.langchain.autolog()
+----
++
+No output means success.
+Autolog is now active for all LangChain and LangGraph calls in this notebook session.
+
+NOTE: `mlflow.langchain.autolog()` requires `mlflow >= 2.14` and `langchain >= 0.2`.
+Both are pre-installed in the workbench image.
+
+=== 1.3 Send an instrumented query
+
+. Scroll to *Cell 5: Instrumented query*. Run the cell:
++
+[source,python]
+----
+with mlflow.start_run(run_name="module-3-trace"):
+    response = assistant.query(
+        "What are best practices for configuring pod disruption budgets?"
+    )
+    print(response)
+----
++
+Wait for the response.
+The latency may be higher than your Module 1 baseline if this request hits the intermittent timeout.
++
+Expected output (text will vary):
++
+----
+Pod disruption budgets (PDBs) ensure that a minimum number of pod replicas
+remain available during voluntary disruptions...
+
+Round-trip latency: 6.7s
+----
+
+=== 1.4 Locate the trace in the MLflow UI
+
+. Open the MLflow UI.
++
+In the RHOAI dashboard, navigate to *Data Science Projects -> AgentOps Lab*.
+Under *Models and experiments*, click the MLflow link -- or use the URL provided in the lab interface.
+
+. Navigate to *Experiments -> agentops-lab*.
+
+. You should see a run named `module-3-trace` with a timestamp from the last few seconds.
+
+. Click the run name to open the run detail page.
+
+. Scroll to the *Traces* section at the bottom. Click the trace ID to open the trace waterfall view.
+
+=== Verify
+
+The trace waterfall shows at least four spans in a parent-child hierarchy:
+
+----
+AgentGraph                        (root -- total request duration)
+  └─ supervisor                   (routing decision)
+       └─ docs-retrieval          (or runbook-retrieval, depending on routing)
+            └─ synthesis          (final response generation)
+----
+
+If the supervisor routed to both retrieval agents, you will see two parallel child spans.
+
+If the trace does not appear, wait 10 seconds and refresh.
+MLflow ingests traces asynchronously after the request completes.
+
+== Exercise 2: Analyze trace timelines
+
+Now that you have a trace, you will use it to identify the two pre-seeded failure conditions.
+One is a latency bottleneck -- a span that takes much longer than expected.
+The other is a silent failure -- a span that completes normally but returns nothing useful.
+
+=== 2.1 Find the latency bottleneck
+
+. In the trace waterfall, identify the widest span -- the one consuming the most wall-clock time.
+
+. Click on that span to open the span attributes panel.
++
+Examine these attributes:
++
+[cols="1,3",options="header"]
+|===
+| Attribute | What it tells you
+
+| `llm.token_count.prompt`
+| Tokens sent to MaaS for this span's LLM call
+
+| `llm.token_count.completion`
+| Tokens returned from MaaS
+
+| `tool.name`
+| Which retrieval tool was invoked
+
+| `duration_ms`
+| Wall-clock time for this span in milliseconds
+|===
+
+. Look for a `docs-retrieval` span with `duration_ms` significantly above 5000 ms (>5s).
++
+This is the intermittent latency bottleneck -- a ChromaDB query that occasionally stalls.
++
+If your current trace does not show it, run cell 5 two more times.
+The bottleneck appears in roughly 1 in 3 requests due to the `DOCS_AGENT_SLOW_RATE` fault injection parameter.
+
+=== 2.2 Find the silent failure
+
+. In the trace waterfall, locate the `runbook-retrieval` span.
+
+. Click on it and examine the span attributes.
+
+. Look for the attribute `tool.result_count`.
++
+If `tool.result_count` equals `0`, you have found the silent failure.
++
+This span completed without an exception -- `duration_ms` is normal (below 500 ms) and there is no error flag on the span.
+But it returned zero results to the synthesis agent, which then generated a response with no grounding from the runbook store.
++
+A monitoring system watching only for exceptions would miss this entirely.
+
+NOTE: If your trace does not show `tool.result_count=0`, run cell 5 one more time.
+The silent failure appears in roughly 1 in 3 requests due to the `RUNBOOK_AGENT_FAULT_RATE` parameter.
+
+=== Verify
+
+You should have found:
+
+* A `docs-retrieval` span with `duration_ms` > 5000 ms (the latency bottleneck)
+* A `runbook-retrieval` span with `tool.result_count = 0` and no error flag (the silent failure)
+
+Both conditions may not appear in a single trace.
+Run cell 5 additional times if needed -- each run creates a new trace.
+
+=== 2.3 Connect the trace to your log entry
+
+. In the silent failure span attributes, locate the `mlflow.trace.request_id` value.
++
+This value is the same as the `query_id` field you saw in the LokiStack logs in Module 2.
+
+. Open a new browser tab and navigate to link:{grafana_url}[Grafana^].
++
+Go to *Explore -> Loki*.
+Run the following query, replacing `<your_query_id>` with the value you copied in Module 2:
++
+[source,logql]
+----
+{namespace="agentops-demo", container="runbook-retrieval"}
+| json
+| query_id="<your_query_id>"
+----
+
+. Confirm the log entry matches the silent failure span.
++
+The timestamp, the `query_id`, and the error message should all correspond.
++
+You have now connected a log event to a distributed trace span -- two pillars, one incident.
+This is the core incident-response workflow for agentic systems.
+
+=== 2.4 Attribute token cost to individual agents
+
+. Return to the MLflow trace.
++
+For each span that made an LLM call, note the `llm.token_count.prompt` and `llm.token_count.completion` values.
+
+. Sum the total tokens across all spans.
++
+This is the per-request token cost for this query.
++
+[cols="1,1,1",options="header"]
+|===
+| Agent span | Prompt tokens | Completion tokens
+
+| Supervisor
+| ~400
+| ~50
+
+| Docs retrieval
+| ~800
+| ~200
+
+| Synthesis
+| ~1200
+| ~300
+|===
++
+Multiply the totals by the MaaS cost-per-token rate in your lab guide to get the per-request dollar estimate.
++
+Per-agent token breakdowns like this are the foundation of cost attribution dashboards and chargeback reports for shared AI infrastructure.
+
+== Module summary
+
+You have used all three pillars of observability to identify and understand both pre-seeded failures.
+
+*What you accomplished:*
+
+* Enabled MLflow autolog for LangGraph with a single line of code -- zero changes to agent code
+* Navigated the MLflow trace waterfall and identified the latency bottleneck (docs-retrieval timeout >5s)
+* Identified the silent failure (runbook-retrieval returns `tool.result_count=0` with no exception)
+* Cross-referenced the `query_id` from LokiStack logs to the corresponding MLflow trace span
+* Calculated per-request token cost by summing span-level LLM token attributes
+
+*Key takeaways:*
+
+* `mlflow.langchain.autolog()` is genuinely zero-code-change instrumentation -- one line captures the full span tree for every LangGraph request
+* Distributed traces reveal what metrics and logs cannot: which specific span caused a slowdown, and which span silently succeeded while returning nothing useful
+* Connecting `query_id` across logs and traces is the core incident-response workflow for agentic systems -- you now have the full picture for one request, from log line to span tree
+* Cost attribution at the span level enables per-agent billing analysis -- the foundation of GPU spend visibility for shared AI infrastructure
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* How MLflow autolog captures LangGraph spans without requiring changes to agent code
+* The structural difference between a hard failure (exception, error span) and a silent failure (completed span with empty result)
+* How to navigate a trace waterfall and use span attributes to attribute latency and cost to individual agents
+* How cross-referencing `query_id` across logs and traces enables full incident reconstruction
+
+*Next*: Module 4 will introduce MLflow Prompt Registry for system prompt versioning, then walk you through designing and running evaluations that detect prompt regressions before they reach production.

@@ -1,0 +1,284 @@
+= Module 5: Operationalizing with AI Pipelines
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 2
+include::partial$_attributes.adoc[]
+
+toc::[]
+
+Running evaluations manually in a notebook is a starting point, not a production practice.
+If nobody remembers to run the evaluation, the quality gate does not exist.
+If the notebook fails silently, nobody knows.
+
+This module shows how to package the evaluation workflow from Module 4 into a reproducible, schedulable AI Pipeline on Red Hat OpenShift AI using Kubeflow Pipelines v2.
+You will review a pre-built pipeline definition, compile it, submit a run, schedule it as a nightly recurring job, and confirm that evaluation results flow back into MLflow.
+At the end, the full AgentOps loop is in place and running automatically.
+
+*Estimated time*: 15 minutes
+
+== Learning objectives
+
+By the end of this module, you will be able to:
+
+* Describe the anatomy of a Kubeflow Pipelines v2 pipeline: `@component` functions, pipeline parameters, and compiled YAML
+* Explain how notebook-based evaluation logic becomes a reproducible pipeline component without rewriting the underlying code
+* Import a pipeline, submit a parameterized run, and interpret run status in the RHOAI AI Pipelines UI
+* Configure a nightly recurring run schedule for automated evaluation
+* Confirm that pipeline-triggered evaluation results are linked to MLflow runs
+
+== Exercise 1: Anatomy of an AI evaluation pipeline
+
+Before submitting a run, you will read the pipeline definition to understand how the evaluation logic from Module 4 was packaged as containerized components.
+
+=== 1.1 Review the pipeline definition
+
+. In `agentops-lab.ipynb`, scroll to *Cell 14: Pipeline definition*. Read through the code -- do not run it yet:
++
+[source,python]
+----
+from kfp import dsl, compiler
+
+@dsl.component(base_image="quay.io/agentops-lab/eval-runner:latest")
+def run_evaluation(prompt_version: int, experiment_name: str) -> dict:
+    """Runs mlflow.evaluate() for the specified prompt version."""
+    import mlflow, pandas as pd
+    # Evaluation logic identical to Module 4 cells 9-11
+    return {
+        "similarity": results.metrics["answer_similarity/v1/mean"],
+        "relevance": results.metrics["answer_relevance/v1/mean"]
+    }
+
+@dsl.component(base_image="quay.io/agentops-lab/eval-runner:latest")
+def compare_and_gate(v1_metrics: dict, v2_metrics: dict, threshold: float) -> str:
+    """Compares two evaluation results. Returns 'pass' or 'fail'."""
+    delta = v2_metrics["similarity"] - v1_metrics["similarity"]
+    return "pass" if delta > -threshold else "fail"
+
+@dsl.pipeline(name="agentops-prompt-evaluation")
+def evaluation_pipeline(prompt_version: int = 1, threshold: float = 0.10):
+    baseline_task = run_evaluation(
+        prompt_version=1,
+        experiment_name="agentops-lab"
+    )
+    eval_task = run_evaluation(
+        prompt_version=prompt_version,
+        experiment_name="agentops-lab"
+    )
+    gate_task = compare_and_gate(
+        v1_metrics=baseline_task.output,
+        v2_metrics=eval_task.output,
+        threshold=threshold
+    )
+----
+
+. Note three things about this pipeline:
+
+* The evaluation logic inside `run_evaluation` is identical to Module 4 -- the `@dsl.component` decorator wraps it without rewriting it
+* Pipeline parameters (`prompt_version`, `threshold`) make the pipeline reusable for any prompt version comparison, not just v1 vs v2
+* The `compare_and_gate` component encodes the quality gate as code -- reviewable, version-controlled, and auditable in the same way as application code
+
+=== 1.2 Review the base container image
+
+The `@dsl.component` decorator specifies `base_image="quay.io/agentops-lab/eval-runner:latest"`.
+
+This image packages the same Python dependencies as your workbench -- `mlflow`, `langchain`, `kfp`, and the `agentops_client` library.
+
+In a production setup, you would maintain this image alongside your application code in a CI/CD pipeline: when a new dependency is added to the workbench, the image is rebuilt and the pipeline automatically picks it up on the next run.
+
+NOTE: The `eval-runner` image is pre-pulled to the cluster nodes during environment provisioning to avoid cold-pull latency during the lab.
+
+== Exercise 2: Submit and schedule a pipeline run
+
+Now you will compile the pipeline, import it into RHOAI, submit a parameterized run, and schedule it for nightly execution.
+
+=== 2.1 Compile the pipeline to YAML
+
+. Run *Cell 15: Compile pipeline*:
++
+[source,python]
+----
+compiler.Compiler().compile(
+    evaluation_pipeline,
+    "evaluation_pipeline.yaml"
+)
+print("Pipeline compiled: evaluation_pipeline.yaml")
+----
++
+Expected output:
++
+----
+Pipeline compiled: evaluation_pipeline.yaml
+----
++
+A file named `evaluation_pipeline.yaml` now appears in the Jupyter file browser on the left side of the workbench.
+
+=== 2.2 Import the pipeline to RHOAI AI Pipelines
+
+. Navigate to the RHOAI dashboard at link:{rhods_dashboard_url}[{rhods_dashboard_url}^].
+
+. In the left sidebar, click *AI Pipelines* (or *Pipelines*, depending on the RHOAI version).
+
+. Click *Import pipeline*. Fill in the form:
++
+[cols="1,2",options="header"]
+|===
+| Field | Value
+
+| Pipeline name
+| `agentops-prompt-evaluation`
+
+| Description
+| `Evaluates prompt versions and gates on quality threshold`
+
+| Upload file
+| Select `evaluation_pipeline.yaml` from your workbench files
+|===
++
+Click *Import*.
+
+. Click the pipeline name to open the pipeline graph view.
++
+Verify the graph shows three components with correct dependency arrows: both `run_evaluation` tasks feed independently into `compare_and_gate`.
+
+=== Verify
+
+The pipeline graph shows three nodes: two `run_evaluation` components and one `compare_and_gate` component.
+Arrows connect each `run_evaluation` to `compare_and_gate`.
+
+=== 2.3 Submit a one-shot run
+
+. Click *Create run*. Configure the run:
++
+[cols="1,2",options="header"]
+|===
+| Field | Value
+
+| Run name
+| `module-5-demo-run`
+
+| `prompt_version`
+| `2`
+
+| `threshold`
+| `0.10`
+|===
++
+Click *Create*.
+
+. The run detail page opens showing the pipeline graph.
++
+Watch each component cycle through its states: *Pending -> Running -> Succeeded* (or *Failed*).
+The full run takes approximately 2-3 minutes.
+
+=== 2.4 Inspect the gate output
+
+. After `compare_and_gate` completes, click on that component in the graph.
+
+. In the right panel, select the *Output artifacts* tab.
++
+The output should be `"fail"` -- v2 scored below the 0.10 threshold you observed in Module 4.
+This is the same regression result you calculated manually, now enforced automatically.
+
+=== Verify
+
+The `compare_and_gate` component output artifact shows `"fail"`.
+
+If you see `"pass"`, the evaluation run may have produced different results than Module 4 due to MaaS response variability.
+Re-submit the run with `threshold: 0.05` to lower the passing bar and observe the gate behavior.
+
+=== 2.5 Schedule a nightly recurring run
+
+. Return to the pipeline list. Click *Recurring runs* (or *Scheduled runs*).
+
+. Click *Create recurring run*. Configure:
++
+[cols="1,2",options="header"]
+|===
+| Field | Value
+
+| Run name
+| `nightly-prompt-evaluation`
+
+| Pipeline
+| `agentops-prompt-evaluation`
+
+| Trigger type
+| Periodic
+
+| Interval
+| Every 1 day
+
+| Start time
+| Tomorrow at 02:00 UTC
+
+| `prompt_version`
+| `1`
+
+| `threshold`
+| `0.10`
+|===
++
+Click *Create*.
++
+The nightly evaluation is now scheduled.
+Each night at 02:00 UTC, the pipeline will evaluate the current production prompt against itself (v1 as both baseline and candidate) -- a sanity check that the baseline itself has not drifted.
+In production, you would parameterize the run to test any new candidate prompt that is proposed for deployment.
+
+NOTE: The recurring run schedule is stored in the RHOAI database and persists across cluster restarts.
+It is scoped to your lab instance -- you are not scheduling against a shared system.
+
+=== 2.6 Confirm results in MLflow
+
+. Return to the MLflow UI -> *Experiments -> agentops-lab*.
+
+. Locate the runs created by the pipeline -- they are tagged with `pipeline_run_id` in the run parameters.
++
+Evaluation results from the pipeline run appear here alongside the runs you created manually in Module 4.
+The full chain from trace to evaluation to pipeline is complete.
+
+=== Verify
+
+At least one MLflow run with a `pipeline_run_id` tag appears in the `agentops-lab` experiment.
+
+== Module summary
+
+You have operationalized the AgentOps quality gate as a scheduled, automated pipeline.
+
+*What you accomplished:*
+
+* Read and understood a KFP v2 pipeline built from the same evaluation logic used in Module 4
+* Compiled the pipeline to YAML and imported it into RHOAI AI Pipelines
+* Submitted a parameterized run and observed the `compare_and_gate` component output `"fail"` for the degraded v2 prompt
+* Configured a nightly recurring run to enforce the quality gate automatically
+* Confirmed that pipeline-triggered evaluation results are linked to MLflow experiment runs
+
+*Key takeaways:*
+
+* AI Pipelines turn one-off notebook evaluations into reproducible, schedulable, auditable jobs -- no manual execution required
+* The `@dsl.component` pattern lets you reuse evaluation logic from notebooks without rewriting it; the pipeline adds orchestration, parameterization, and scheduling on top
+* A nightly evaluation pipeline is the enforcement mechanism of the AgentOps quality gate: prompt regressions are caught automatically, not by accident
+* The full AgentOps loop is now in place: *traces* surface performance and failure signals, *evaluations* gate prompt quality, *pipelines* enforce the cadence at scale
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* How the `@dsl.component` decorator wraps existing evaluation logic without rewriting it
+* How to import, run, and schedule a KFP v2 pipeline using the RHOAI AI Pipelines UI
+* Why scheduled evaluations are the cadence mechanism of AgentOps -- catching regressions before users encounter them
+* How the three observability pillars and the evaluation pipeline form a closed loop for production AI reliability
+
+== Congratulations!
+
+You have completed the *AgentOps in Production* workshop.
+
+You arrived with a running multi-agent AI system and no visibility into its behavior.
+You leave with:
+
+* Grafana dashboards that surface token cost, latency percentiles, and per-agent error rates
+* LokiStack LogQL queries that isolate failures to specific containers and extract structured event data
+* MLflow distributed tracing that attributes latency and cost to individual agent spans
+* A Prompt Registry workflow that versions system prompts and links them to evaluation results
+* An automated AI Pipeline that enforces the quality gate on a nightly schedule
+
+This is AgentOps: the discipline that makes multi-agent AI systems production-ready.
